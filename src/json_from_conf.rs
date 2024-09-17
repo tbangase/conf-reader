@@ -1,5 +1,7 @@
 use serde_json::{json, Value};
 
+use crate::Schema;
+
 /// Parse separated lines from configuration file to json value.
 /// Usage:
 /// ```
@@ -12,7 +14,7 @@ use serde_json::{json, Value};
 ///    "log.file = /var/log/console.log",
 ///    "log.name = default.log"
 ///    ];
-/// assert_eq!(json_from_conf(lines), json!({
+/// assert_eq!(json_from_conf(lines, None), json!({
 ///    "endpoint": "localhost:3000",
 ///    "debug": true,
 ///    "log": {
@@ -20,7 +22,7 @@ use serde_json::{json, Value};
 ///    "name": "default.log",
 ///    },
 /// }));
-pub fn json_from_conf(lines: Vec<impl ToString>) -> Value {
+pub fn json_from_conf(lines: Vec<impl ToString>, schema: Option<Schema>) -> Value {
     lines.iter().fold(json!({}), |acc, line| {
         let line = line.to_string();
 
@@ -30,8 +32,7 @@ pub fn json_from_conf(lines: Vec<impl ToString>) -> Value {
         }
 
         // Get key and value from line
-        let [key, value, ..] = line.splitn(2, '=').map(|x| x.trim()).collect::<Vec<&str>>()[..]
-        else {
+        let [key, value, ..] = line.splitn(2, '=').map(|x| x.trim()).collect::<Vec<_>>()[..] else {
             return acc;
         };
         let keys: Vec<&str> = key.split('.').collect();
@@ -49,13 +50,13 @@ fn set_json(mut json_value: Value, keys: Vec<&str>, value: &str) -> Value {
             let parsed_value = value_from_str(value);
             current[k] = parsed_value;
         } else {
-            if !current.get(k).is_some() {
+            if current.get(k).is_none() {
                 current[k] = json!({});
             }
             current = current.get_mut(k).unwrap();
         }
     }
-    return json_value;
+    json_value
 }
 
 fn value_from_str(s: &str) -> Value {
@@ -127,7 +128,7 @@ mod tests {
         },
     }))]
     fn success_test(#[case] lines: Vec<impl ToString>, #[case] expected: Value) {
-        let res = json_from_conf(lines);
+        let res = json_from_conf(lines, None);
         assert_eq!(res, expected);
     }
 }
