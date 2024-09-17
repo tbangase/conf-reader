@@ -1,7 +1,7 @@
 # Conf file Reader
 
-This library is used to read configuration files in the format of key-value pairs.
-The library supports reading from a file.
+This library is used to read configuration files in the format of key-value pairs such as the `sysctl.conf` file.
+The library supports reading from a file or lines of the data.
 
 # Usage
 
