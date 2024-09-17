@@ -1,6 +1,13 @@
 use serde_json::{json, Value};
+use thiserror::Error;
 
 use crate::Schema;
+
+#[derive(Error, Debug)]
+pub enum JsonFromConfError {
+    #[error("Config not match to the Schema: {0}")]
+    NotMatchToTheSchema(String),
+}
 
 /// Parse separated lines from configuration file to json value.
 /// Usage:
@@ -22,31 +29,43 @@ use crate::Schema;
 ///    "name": "default.log",
 ///    },
 /// }));
-pub fn json_from_conf(lines: Vec<impl ToString>, schema: Option<Schema>) -> Value {
-    lines.iter().fold(json!({}), |acc, line| {
+/// ```
+pub fn json_from_conf(
+    lines: Vec<impl ToString>,
+    schema: Option<Schema>,
+) -> Result<Value, JsonFromConfError> {
+    lines.iter().try_fold(json!({}), |acc, line| {
         let line = line.to_string();
 
         // Comment or empty line will be skipped
         if line.starts_with('#') || line.starts_with(';') || line.trim().is_empty() {
-            return acc;
+            return Ok(acc);
         }
 
         // Get key and value from line
         let [key, value, ..] = line.splitn(2, '=').map(|x| x.trim()).collect::<Vec<_>>()[..] else {
-            return acc;
+            return Ok(acc);
         };
-        let keys: Vec<&str> = key.split('.').collect();
+        let key_path: Vec<&str> = key.split('.').collect();
+
+        if let Some(schema) = &schema {
+            if !schema.is_valid(&key_path, &value_from_str(value)) {
+                return Err(JsonFromConfError::NotMatchToTheSchema(format!(
+                    "key: {key}, value: {value}"
+                )));
+            }
+        }
 
         // Parse to json value
-        set_json(acc, keys, value)
+        Ok(set_json(acc, key_path, value))
     })
 }
 
-fn set_json(mut json_value: Value, keys: Vec<&str>, value: &str) -> Value {
+fn set_json(mut json_value: Value, key_path: Vec<&str>, value: &str) -> Value {
     let mut current = &mut json_value;
 
-    for (i, &k) in keys.iter().enumerate() {
-        if i == keys.len() - 1 {
+    for (i, &k) in key_path.iter().enumerate() {
+        if i == key_path.len() - 1 {
             let parsed_value = value_from_str(value);
             current[k] = parsed_value;
         } else {
@@ -75,6 +94,8 @@ fn value_from_str(s: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use rstest::rstest;
     use serde_json::json;
 
@@ -127,8 +148,30 @@ mod tests {
             },
         },
     }))]
-    fn success_test(#[case] lines: Vec<impl ToString>, #[case] expected: Value) {
+    fn conf_to_json_test(#[case] lines: Vec<impl ToString>, #[case] expected: Value) {
         let res = json_from_conf(lines, None);
-        assert_eq!(res, expected);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case::case_1_simple_case_with_nested(vec![
+        "endpoint = localhost:3000",
+        "debug = true",
+        "log.file = /var/log/console.log",
+    ],
+    Schema::new(HashMap::from([
+        ("endpoint".to_string(), "String".to_string().parse().unwrap()),
+        ("debug".to_string(), "Bool".to_string().parse().unwrap()),
+        ("log.file".to_string(), "String".to_string().parse().unwrap()),
+    ])))]
+    #[should_panic]
+    #[case::case_2_wrong_type(vec![
+        "debug = true",
+    ],
+    Schema::new(HashMap::from([
+        ("debug".to_string(), "String".to_string().parse().unwrap()),
+    ])))]
+    fn schema_validation_test(#[case] lines: Vec<impl ToString>, #[case] schema: Schema) {
+        json_from_conf(lines, Some(schema)).unwrap();
     }
 }

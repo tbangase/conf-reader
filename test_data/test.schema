@@ -1,3 +1,3 @@
-endpoint -> string
-debug -> bool
-log.file -> string
+endpoint -> String
+debug -> Bool
+log.file -> String
